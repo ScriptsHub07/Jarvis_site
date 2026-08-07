@@ -21,7 +21,6 @@
       align-items: center;
       justify-content: center;
     }
-
     /* HUD Canvas */
     #hud-container {
       position: relative;
@@ -36,7 +35,6 @@
       top: 0;
       left: 0;
     }
-
     /* Status e Logs */
     #status {
       margin-top: 20px;
@@ -53,8 +51,7 @@
       text-align: center;
       min-height: 2em;
     }
-
-    /* Botão de Inicialização (Exigido pelo Chrome) */
+    /* Botão de Inicialização */
     #start-btn {
       margin-top: 15px;
       padding: 12px 24px;
@@ -73,8 +70,7 @@
       color: #050b14;
       box-shadow: 0 0 20px #00f0ff;
     }
-
-    /* Player do YouTube Embutido */
+    /* Player do YouTube */
     #music-player-container {
       position: absolute;
       bottom: 20px;
@@ -93,49 +89,36 @@
       height: 100%;
     }
   </style>
-
-  <!-- SDK Google Gen AI -->
-  <script type="importmap">
-    {
-      "imports": {
-        "@google/genai": "https://esm.run/@google/genai"
-      }
-    }
-  </script>
 </head>
 <body>
-
   <div id="hud-container">
     <canvas id="hudCanvas" width="400" height="400"></canvas>
   </div>
-
   <div id="status">CLIQUE ABAIXO PARA INICIALIZAR</div>
   <button id="start-btn">INICIAR JARVIS</button>
   <div id="transcript-log">Aguardando ativação do sistema.</div>
 
-  <!-- Player de Músicas Oculto/Flutuante -->
+  <!-- Player de Músicas -->
   <div id="music-player-container">
     <div id="youtube-player"></div>
   </div>
 
-  <!-- Tag de Áudio Oculta para Web Audio API / ElevenLabs -->
+  <!-- Áudio oculto para ElevenLabs -->
   <audio id="elevenAudio" crossorigin="anonymous" style="display:none;"></audio>
 
   <!-- YouTube IFrame API -->
   <script src="https://www.youtube.com/iframe_api"></script>
 
   <script type="module">
-    import { GoogleGenAI } from '@google/genai';
+    // ==========================================
+    // 1. CONFIGURAÇÕES
+    // ==========================================
+    const PROXY_URL = "https://jarvis-gemini-prox.p808409.workers.dev/"; // ← COLOQUE A URL DO SEU WORKER AQUI
+    const ELEVENLABS_API_KEY = 'sk_8160fd261a9a0b01ef9321fff20aeabbf6b5550c5c9ed266'; // Revogue e gere uma nova se esta ficou pública
+    const VOICE_ID = 'IKne3meq5aSn9XLyUdCD'; // Voz estilo Jarvis
 
     // ==========================================
-    // 1. CONFIGURAÇÕES E CHAVES DE API
-    // ==========================================
-    const GEMINI_API_KEY = 'AQ.Ab8RN6IUqdkaH2P45XJbxz_MIWIPuthihJVd9zvAqE6NhS1XBw';
-    const ELEVENLABS_API_KEY = 'sk_8160fd261a9a0b01ef9321fff20aeabbf6b5550c5c9ed266';
-    const VOICE_ID = 'IKne3meq5aSn9XLyUdCD'; // Voz do Charlie (Estilo Jarvis)
-
-    // ==========================================
-    // 2. ELEMENTOS DA INTERFACE E CANVAS HUD
+    // 2. ELEMENTOS DA INTERFACE
     // ==========================================
     const canvas = document.getElementById('hudCanvas');
     const ctx = canvas.getContext('2d');
@@ -144,33 +127,13 @@
     const startBtn = document.getElementById('start-btn');
     const audioElement = document.getElementById('elevenAudio');
 
-    let currentState = 'idle'; 
+    let currentState = 'idle';
     let angle = 0;
     let recognition = null;
-    let chatSession = null;
+    let conversationHistory = [];
 
     // ==========================================
-    // 3. INICIALIZAÇÃO DO CÉREBRO (GEMINI)
-    // ==========================================
-    async function initGemini() {
-      try {
-        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-        chatSession = ai.chats.create({
-          model: 'gemini-2.0-flash',
-          config: {
-            systemInstruction: 'Você é o JARVIS, uma inteligência artificial sofisticada inspirada na IA de Tony Stark. Responda em português do Brasil de forma sucinta, direta e elegante, perfeita para síntese de voz. Não use emojis, asteriscos ou marcadores de formatação.'
-          }
-        });
-        return true;
-      } catch (err) {
-        console.error("Erro ao inicializar Gemini:", err);
-        statusEl.innerText = "ERRO AO CONECTAR COM GEMINI";
-        return false;
-      }
-    }
-
-    // ==========================================
-    // 4. WEB AUDIO API (ANALISADOR DE FREQUÊNCIA)
+    // 3. WEB AUDIO API (ANALISADOR DE FREQUÊNCIA)
     // ==========================================
     let audioCtx = null;
     let analyser = null;
@@ -181,11 +144,9 @@
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioCtx.createAnalyser();
-        
         sourceNode = audioCtx.createMediaElementSource(audioElement);
         sourceNode.connect(analyser);
         analyser.connect(audioCtx.destination);
-
         analyser.fftSize = 256;
         const bufferLength = analyser.frequencyBinCount;
         dataArray = new Uint8Array(bufferLength);
@@ -196,24 +157,22 @@
     }
 
     // ==========================================
-    // 5. MOTOR DE ANIMAÇÃO DO CANVAS HUD
+    // 4. MOTOR DE ANIMAÇÃO DO CANVAS HUD
     // ==========================================
     function drawHUD() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const cx = canvas.width / 2;
       const cy = canvas.height / 2;
-
       angle += 0.01;
 
-      let baseColor = { r: 0, g: 240, b: 255 }; 
-      if (currentState === 'listening') baseColor = { r: 0, g: 255, b: 102 }; 
-      if (currentState === 'thinking') baseColor = { r: 255, g: 0, b: 255 };  
+      let baseColor = { r: 0, g: 240, b: 255 };
+      if (currentState === 'listening') baseColor = { r: 0, g: 255, b: 102 };
+      if (currentState === 'thinking') baseColor = { r: 255, g: 0, b: 255 };
 
       let volumeMultiplier = 0;
       if (currentState === 'speaking' && dataArray) {
-        baseColor = { r: 255, g: 153, b: 0 }; 
+        baseColor = { r: 255, g: 153, b: 0 };
         analyser.getByteFrequencyData(dataArray);
-
         let sum = 0;
         for (let i = 0; i < dataArray.length; i++) {
           sum += dataArray[i];
@@ -239,7 +198,7 @@
       // Anel Interno Pulsante
       const staticPulse = Math.sin(Date.now() * 0.005) * 5;
       const reactivePulse = currentState === 'speaking' ? volumeMultiplier * 35 : 0;
-      
+
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(-angle * 1.5);
@@ -267,7 +226,7 @@
     drawHUD();
 
     // ==========================================
-    // 6. PLAYER DO YOUTUBE
+    // 5. PLAYER DO YOUTUBE
     // ==========================================
     let ytPlayer = null;
     window.onYouTubeIframeAPIReady = function() {
@@ -298,15 +257,13 @@
     }
 
     // ==========================================
-    // 7. SÍNTESE DE VOZ (ELEVENLABS + FALLBACK)
+    // 6. SÍNTESE DE VOZ (ELEVENLABS + FALLBACK)
     // ==========================================
     async function falar(texto) {
       setupWebAudio();
-
       currentState = 'speaking';
       statusEl.innerText = "RESPONDENDO...";
 
-      // Se a chave não estiver preenchida, usa fallback nativo
       if (!ELEVENLABS_API_KEY || ELEVENLABS_API_KEY.includes('SUA_ELEVENLABS')) {
         falarNativo(texto);
         return;
@@ -339,7 +296,6 @@
         };
 
         await audioElement.play();
-
       } catch (error) {
         console.error("Erro na ElevenLabs, usando fallback nativo:", error);
         falarNativo(texto);
@@ -358,11 +314,10 @@
     }
 
     // ==========================================
-    // 8. ESCUTA CONTÍNUA E PROCESSAMENTO
+    // 7. ESCUTA CONTÍNUA E PROCESSAMENTO
     // ==========================================
     function initSpeech() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
       if (!SpeechRecognition) {
         statusEl.innerText = "SISTEMA INCOMPATÍVEL (USE GOOGLE CHROME)";
         return false;
@@ -381,7 +336,6 @@
       recognition.onresult = async (event) => {
         const lastIndex = event.results.length - 1;
         const transcript = event.results[lastIndex][0].transcript.trim().toLowerCase();
-
         logEl.innerText = `Ouvido: "${transcript}"`;
 
         const wakeWords = ["jarvis", "hey jarvis", "ei jarvis"];
@@ -390,7 +344,6 @@
         if (triggeredWord) {
           currentState = 'listening';
           const command = transcript.split(triggeredWord)[1].trim();
-
           if (command.length > 0) {
             await processarComando(command);
           } else {
@@ -411,46 +364,66 @@
       currentState = 'thinking';
       statusEl.innerText = "PROCESSANDO...";
 
-      // Comandos Locais de Música
+      // Comandos locais de música
       if (comando.includes("toque") || comando.includes("tocar") || comando.includes("coloque a música")) {
         const musica = comando.replace(/toque|tocar|coloque a música|música/g, "").trim();
         tocarMusica(musica);
         falar(`Com certeza, senhor. Reproduzindo ${musica}.`);
         return;
       }
-
       if (comando.includes("parar música") || comando.includes("pare a música") || comando.includes("desligar música")) {
         pararMusica();
         falar("Música interrompida.");
         return;
       }
 
-      // Consulta ao Gemini
+      // Chamada ao proxy Cloudflare
       try {
-        const response = await chatSession.sendMessage({ message: comando });
-        const text = typeof response.text === 'function' ? await response.text() : response.text;
+        const response = await fetch(PROXY_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: comando,
+            history: conversationHistory,
+            systemInstruction: "Você é o JARVIS, uma inteligência artificial sofisticada inspirada na IA de Tony Stark. Responda em português do Brasil de forma sucinta, direta e elegante, perfeita para síntese de voz. Não use emojis, asteriscos ou marcadores de formatação."
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error?.message || data.error || "Erro no proxy");
+        }
+
+        const text = data.text;
+
+        // Atualiza histórico
+        conversationHistory.push({ role: "user", text: comando });
+        conversationHistory.push({ role: "model", text: text });
+
+        // Limita o histórico
+        if (conversationHistory.length > 20) {
+          conversationHistory = conversationHistory.slice(-20);
+        }
+
         falar(text);
       } catch (error) {
-        console.error("Erro no Gemini:", error);
+        console.error("Erro no Gemini via proxy:", error);
         falar("Desculpe, senhor. Houve uma falha de comunicação com os servidores.");
       }
     }
 
     // ==========================================
-    // 9. EVENTO DO BOTÃO DE INICIALIZAÇÃO
+    // 8. BOTÃO DE INICIALIZAÇÃO
     // ==========================================
     startBtn.addEventListener('click', async () => {
       startBtn.style.display = 'none';
       statusEl.innerText = "INICIALIZANDO MÓDULOS...";
-
       setupWebAudio();
-      const geminiOk = await initGemini();
-      
-      if (geminiOk) {
-        const speechOk = initSpeech();
-        if (speechOk) {
-          falar("Sistema Jarvis online e operacional, senhor.");
-        }
+
+      const speechOk = initSpeech();
+      if (speechOk) {
+        falar("Sistema Jarvis online e operacional, senhor.");
       }
     });
   </script>
