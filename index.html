@@ -21,7 +21,6 @@
       align-items: center;
       justify-content: center;
     }
-    /* HUD Canvas */
     #hud-container {
       position: relative;
       width: 400px;
@@ -35,7 +34,6 @@
       top: 0;
       left: 0;
     }
-    /* Status e Logs */
     #status {
       margin-top: 20px;
       font-size: 1.1rem;
@@ -51,7 +49,6 @@
       text-align: center;
       min-height: 2em;
     }
-    /* Botão de Inicialização */
     #start-btn {
       margin-top: 15px;
       padding: 12px 24px;
@@ -70,7 +67,6 @@
       color: #050b14;
       box-shadow: 0 0 20px #00f0ff;
     }
-    /* Player do YouTube */
     #music-player-container {
       position: absolute;
       bottom: 20px;
@@ -98,24 +94,20 @@
   <button id="start-btn">INICIAR JARVIS</button>
   <div id="transcript-log">Aguardando ativação do sistema.</div>
 
-  <!-- Player de Músicas -->
   <div id="music-player-container">
     <div id="youtube-player"></div>
   </div>
 
-  <!-- Áudio oculto para ElevenLabs -->
   <audio id="elevenAudio" crossorigin="anonymous" style="display:none;"></audio>
-
-  <!-- YouTube IFrame API -->
   <script src="https://www.youtube.com/iframe_api"></script>
 
   <script type="module">
     // ==========================================
     // 1. CONFIGURAÇÕES
     // ==========================================
-    const PROXY_URL = "https://jarvis-gemini-prox.p808409.workers.dev"; // ← COLOQUE A URL DO SEU WORKER AQUI
-    const ELEVENLABS_API_KEY = 'sk_8160fd261a9a0b01ef9321fff20aeabbf6b5550c5c9ed266'; // Revogue e gere uma nova se esta ficou pública
-    const VOICE_ID = 'IKne3meq5aSn9XLyUdCD'; // Voz estilo Jarvis
+    const PROXY_URL = "https://jarvis-gemini-prox.p808409.workers.dev"; // ← sua URL do Worker
+    const ELEVENLABS_API_KEY = ''; // coloque sua chave ou deixe vazio para usar voz nativa
+    const VOICE_ID = 'IKne3meq5aSn9XLyUdCD';
 
     // ==========================================
     // 2. ELEMENTOS DA INTERFACE
@@ -132,8 +124,14 @@
     let recognition = null;
     let conversationHistory = [];
 
+    // Controle do novo comportamento
+    let isListeningCommand = false;
+    let silenceTimer = null;
+    let currentCommand = "";
+    const SILENCE_DELAY = 2000; // 2 segundos
+
     // ==========================================
-    // 3. WEB AUDIO API (ANALISADOR DE FREQUÊNCIA)
+    // 3. WEB AUDIO API
     // ==========================================
     let audioCtx = null;
     let analyser = null;
@@ -148,8 +146,7 @@
         sourceNode.connect(analyser);
         analyser.connect(audioCtx.destination);
         analyser.fftSize = 256;
-        const bufferLength = analyser.frequencyBinCount;
-        dataArray = new Uint8Array(bufferLength);
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
       }
       if (audioCtx.state === 'suspended') {
         audioCtx.resume();
@@ -157,7 +154,32 @@
     }
 
     // ==========================================
-    // 4. MOTOR DE ANIMAÇÃO DO CANVAS HUD
+    // 4. BIP DE ATIVAÇÃO
+    // ==========================================
+    function tocarBip() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+
+        oscillator.frequency.value = 880;
+        oscillator.type = "sine";
+
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+
+        oscillator.start(ctx.currentTime);
+        oscillator.stop(ctx.currentTime + 0.18);
+      } catch (e) {
+        console.warn("Erro ao tocar bip:", e);
+      }
+    }
+
+    // ==========================================
+    // 5. ANIMAÇÃO DO HUD
     // ==========================================
     function drawHUD() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -174,16 +196,13 @@
         baseColor = { r: 255, g: 153, b: 0 };
         analyser.getByteFrequencyData(dataArray);
         let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
-        }
-        const averageVolume = sum / dataArray.length;
-        volumeMultiplier = (averageVolume / 255) * 1.5;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        volumeMultiplier = (sum / dataArray.length / 255) * 1.5;
       }
 
       const colorStr = (opacity) => `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, ${opacity})`;
 
-      // Anel Externo Giratório
+      // Anel externo
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(angle);
@@ -195,7 +214,7 @@
       ctx.stroke();
       ctx.restore();
 
-      // Anel Interno Pulsante
+      // Anel interno
       const staticPulse = Math.sin(Date.now() * 0.005) * 5;
       const reactivePulse = currentState === 'speaking' ? volumeMultiplier * 35 : 0;
 
@@ -210,7 +229,7 @@
       ctx.stroke();
       ctx.restore();
 
-      // Núcleo Central
+      // Núcleo
       const reactiveCore = currentState === 'speaking' ? volumeMultiplier * 25 : 0;
       ctx.save();
       ctx.beginPath();
@@ -226,7 +245,7 @@
     drawHUD();
 
     // ==========================================
-    // 5. PLAYER DO YOUTUBE
+    // 6. PLAYER DO YOUTUBE
     // ==========================================
     let ytPlayer = null;
     window.onYouTubeIframeAPIReady = function() {
@@ -257,14 +276,14 @@
     }
 
     // ==========================================
-    // 6. SÍNTESE DE VOZ (ELEVENLABS + FALLBACK)
+    // 7. SÍNTESE DE VOZ
     // ==========================================
     async function falar(texto) {
       setupWebAudio();
       currentState = 'speaking';
       statusEl.innerText = "RESPONDENDO...";
 
-      if (!ELEVENLABS_API_KEY || ELEVENLABS_API_KEY.includes('SUA_ELEVENLABS')) {
+      if (!ELEVENLABS_API_KEY) {
         falarNativo(texto);
         return;
       }
@@ -283,7 +302,7 @@
           })
         });
 
-        if (!response.ok) throw new Error(`Erro ElevenLabs: ${response.statusText}`);
+        if (!response.ok) throw new Error("Erro ElevenLabs");
 
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
@@ -292,12 +311,13 @@
         audioElement.onended = () => {
           currentState = 'idle';
           statusEl.innerText = "SISTEMA ONLINE - AGUARDANDO ATIVAÇÃO";
+          logEl.innerText = 'Diga "Jarvis" para ativar.';
           URL.revokeObjectURL(audioUrl);
         };
 
         await audioElement.play();
       } catch (error) {
-        console.error("Erro na ElevenLabs, usando fallback nativo:", error);
+        console.error("Erro ElevenLabs:", error);
         falarNativo(texto);
       }
     }
@@ -309,12 +329,13 @@
       utterance.onend = () => {
         currentState = 'idle';
         statusEl.innerText = "SISTEMA ONLINE - AGUARDANDO ATIVAÇÃO";
+        logEl.innerText = 'Diga "Jarvis" para ativar.';
       };
       window.speechSynthesis.speak(utterance);
     }
 
     // ==========================================
-    // 7. ESCUTA CONTÍNUA E PROCESSAMENTO
+    // 8. RECONHECIMENTO DE VOZ (NOVO COMPORTAMENTO)
     // ==========================================
     function initSpeech() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -326,40 +347,94 @@
       recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.lang = 'pt-BR';
-      recognition.interimResults = false;
+      recognition.interimResults = true;
 
       recognition.onstart = () => {
-        statusEl.innerText = "SISTEMA ONLINE - AGUARDANDO ATIVAÇÃO";
-        logEl.innerText = 'Diga "Jarvis" ou "Hey Jarvis" para iniciar.';
-      };
-
-      recognition.onresult = async (event) => {
-        const lastIndex = event.results.length - 1;
-        const transcript = event.results[lastIndex][0].transcript.trim().toLowerCase();
-        logEl.innerText = `Ouvido: "${transcript}"`;
-
-        const wakeWords = ["jarvis", "hey jarvis", "ei jarvis"];
-        let triggeredWord = wakeWords.find(word => transcript.includes(word));
-
-        if (triggeredWord) {
-          currentState = 'listening';
-          const command = transcript.split(triggeredWord)[1].trim();
-          if (command.length > 0) {
-            await processarComando(command);
-          } else {
-            falar("Pois não, senhor? Como posso ajudar?");
-          }
+        if (!isListeningCommand) {
+          statusEl.innerText = "SISTEMA ONLINE - AGUARDANDO ATIVAÇÃO";
+          logEl.innerText = 'Diga "Jarvis" para ativar.';
         }
       };
 
+      recognition.onresult = (event) => {
+        let interim = "";
+        let finalTranscript = "";
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript.trim().toLowerCase();
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + " ";
+          } else {
+            interim += transcript;
+          }
+        }
+
+        // === STANDBY: esperando palavra de ativação ===
+        if (!isListeningCommand) {
+          const fullText = (finalTranscript + " " + interim).toLowerCase();
+          const wakeWords = ["jarvis", "hey jarvis", "ei jarvis"];
+
+          if (wakeWords.some(word => fullText.includes(word))) {
+            isListeningCommand = true;
+            currentCommand = "";
+            currentState = 'listening';
+            statusEl.innerText = "OUVINDO...";
+            logEl.innerText = "Pode falar o comando...";
+
+            tocarBip();
+
+            clearTimeout(silenceTimer);
+            silenceTimer = setTimeout(finalizarEscuta, SILENCE_DELAY);
+          }
+          return;
+        }
+
+        // === ESCUTANDO O COMANDO ===
+        if (finalTranscript) {
+          currentCommand += finalTranscript + " ";
+          logEl.innerText = `Comando: "${currentCommand.trim()}"`;
+        } else if (interim) {
+          logEl.innerText = `Ouvindo: "${interim}"`;
+        }
+
+        // Reinicia o timer de silêncio
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(finalizarEscuta, SILENCE_DELAY);
+      };
+
       recognition.onend = () => {
-        try { recognition.start(); } catch(e) {}
+        try { recognition.start(); } catch (e) {}
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Erro no reconhecimento:", event.error);
       };
 
       recognition.start();
       return true;
     }
 
+    async function finalizarEscuta() {
+      if (!isListeningCommand) return;
+
+      isListeningCommand = false;
+      clearTimeout(silenceTimer);
+
+      const comando = currentCommand.trim();
+      currentCommand = "";
+
+      if (comando.length > 0) {
+        await processarComando(comando);
+      } else {
+        currentState = 'idle';
+        statusEl.innerText = "SISTEMA ONLINE - AGUARDANDO ATIVAÇÃO";
+        logEl.innerText = 'Diga "Jarvis" para ativar.';
+      }
+    }
+
+    // ==========================================
+    // 9. PROCESSAMENTO DE COMANDOS
+    // ==========================================
     async function processarComando(comando) {
       currentState = 'thinking';
       statusEl.innerText = "PROCESSANDO...";
@@ -377,7 +452,7 @@
         return;
       }
 
-      // Chamada ao proxy Cloudflare
+      // Chamada ao proxy (OpenRouter)
       try {
         const response = await fetch(PROXY_URL, {
           method: "POST",
@@ -397,24 +472,22 @@
 
         const text = data.text;
 
-        // Atualiza histórico
         conversationHistory.push({ role: "user", text: comando });
         conversationHistory.push({ role: "model", text: text });
 
-        // Limita o histórico
         if (conversationHistory.length > 20) {
           conversationHistory = conversationHistory.slice(-20);
         }
 
         falar(text);
       } catch (error) {
-        console.error("Erro no Gemini via proxy:", error);
+        console.error("Erro no proxy:", error);
         falar("Desculpe, senhor. Houve uma falha de comunicação com os servidores.");
       }
     }
 
     // ==========================================
-    // 8. BOTÃO DE INICIALIZAÇÃO
+    // 10. BOTÃO DE INICIALIZAÇÃO
     // ==========================================
     startBtn.addEventListener('click', async () => {
       startBtn.style.display = 'none';
