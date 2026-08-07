@@ -156,7 +156,7 @@
       try {
         const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
         chatSession = ai.chats.create({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-2.0-flash',
           config: {
             systemInstruction: 'Você é o JARVIS, uma inteligência artificial sofisticada inspirada na IA de Tony Stark. Responda em português do Brasil de forma sucinta, direta e elegante, perfeita para síntese de voz. Não use emojis, asteriscos ou marcadores de formatação.'
           }
